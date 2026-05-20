@@ -3,37 +3,51 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
+// немного здесь переписала.
+type ParcelStatus string
+
 const (
-	ParcelStatusRegistered = "registered"
-	ParcelStatusSent       = "sent"
-	ParcelStatusDelivered  = "delivered"
+	Registered ParcelStatus = "registered"
+	Sent       ParcelStatus = "sent"
+	Delivered  ParcelStatus = "delivered"
 )
+
+func IsValidStatus(status ParcelStatus) bool {
+	switch status {
+	case Registered, Sent, Delivered:
+		return true
+	default:
+		return false
+
+	}
+}
 
 type Parcel struct {
 	Number    int
 	Client    int
-	Status    string
+	Status    ParcelStatus
 	Address   string
 	CreatedAt string
 }
 
 type ParcelService struct {
-	store ParcelStore
+	store *ParcelStore
 }
 
-func NewParcelService(store ParcelStore) ParcelService {
+func NewParcelService(store *ParcelStore) ParcelService {
 	return ParcelService{store: store}
 }
 
 func (s ParcelService) Register(client int, address string) (Parcel, error) {
 	parcel := Parcel{
 		Client:    client,
-		Status:    ParcelStatusRegistered,
+		Status:    Registered,
 		Address:   address,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -59,7 +73,7 @@ func (s ParcelService) PrintClientParcels(client int) error {
 
 	fmt.Printf("Посылки клиента %d:\n", client)
 	for _, parcel := range parcels {
-		fmt.Printf("Посылка № %d на адрес %s от клиента с идентификатором %d зарегистрирована %s, статус %s\n",
+		fmt.Printf("Посылка № %d на адрес %s от клиента с идентификатором %d зарегистрирована %s, статус '%s'\n",
 			parcel.Number, parcel.Address, parcel.Client, parcel.CreatedAt, parcel.Status)
 	}
 	fmt.Println()
@@ -73,13 +87,14 @@ func (s ParcelService) NextStatus(number int) error {
 		return err
 	}
 
-	var nextStatus string
+	var nextStatus ParcelStatus
+
 	switch parcel.Status {
-	case ParcelStatusRegistered:
-		nextStatus = ParcelStatusSent
-	case ParcelStatusSent:
-		nextStatus = ParcelStatusDelivered
-	case ParcelStatusDelivered:
+	case Registered:
+		nextStatus = Sent
+	case Sent:
+		nextStatus = Delivered
+	case Delivered:
 		return nil
 	}
 
@@ -97,9 +112,17 @@ func (s ParcelService) Delete(number int) error {
 }
 
 func main() {
-	// настройте подключение к БД
+	db, err := sql.Open("sqlite", dbName)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
 
-	store := // создайте объект ParcelStore функцией NewParcelStore
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("database is unavailable: %v", err)
+	}
+	store := NewParcelStore(db)
 	service := NewParcelService(store)
 
 	// регистрация посылки
@@ -136,8 +159,8 @@ func main() {
 	// попытка удаления отправленной посылки
 	err = service.Delete(p.Number)
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Printf("[ОЖИДАЕМАЯ ОШИБКА - попытка удалить отправленную посылку]: %v\n\n", err)
+		// удалила ruturn, чтобы предотвратить преждевременное завершение сценария.
 	}
 
 	// вывод посылок клиента
