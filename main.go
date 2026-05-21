@@ -2,14 +2,15 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-// немного здесь переписала.
 type ParcelStatus string
 
 const (
@@ -17,16 +18,6 @@ const (
 	Sent       ParcelStatus = "sent"
 	Delivered  ParcelStatus = "delivered"
 )
-
-func IsValidStatus(status ParcelStatus) bool {
-	switch status {
-	case Registered, Sent, Delivered:
-		return true
-	default:
-		return false
-
-	}
-}
 
 type Parcel struct {
 	Number    int
@@ -45,6 +36,17 @@ func NewParcelService(store *ParcelStore) ParcelService {
 }
 
 func (s ParcelService) Register(client int, address string) (Parcel, error) {
+	if client <= 0 {
+		return Parcel{}, errors.New("validation error: client ID must be > 0")
+	}
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return Parcel{}, errors.New("validation error: address can not be empty")
+	}
+	if len(address) > 512 {
+		return Parcel{}, errors.New("validation error: address exceeds max len = 512 characters")
+	}
+
 	parcel := Parcel{
 		Client:    client,
 		Status:    Registered,
@@ -82,6 +84,9 @@ func (s ParcelService) PrintClientParcels(client int) error {
 }
 
 func (s ParcelService) NextStatus(number int) error {
+	if number <= 0 {
+		return errors.New("validation error: parcel number must be > 0")
+	}
 	parcel, err := s.store.Get(number)
 	if err != nil {
 		return err
@@ -104,10 +109,26 @@ func (s ParcelService) NextStatus(number int) error {
 }
 
 func (s ParcelService) ChangeAddress(number int, address string) error {
+	if number <= 0 {
+		return errors.New("validation error: parcel number must be > 0")
+	}
+
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return errors.New("validation error: address can not be empty")
+	}
+
+	if len(address) > 512 {
+		return errors.New("validation error: address exceeds max len = 512 characters")
+	}
+
 	return s.store.SetAddress(number, address)
 }
 
 func (s ParcelService) Delete(number int) error {
+	if number <= 0 {
+		return errors.New("validation error: parcel number must be > 0")
+	}
 	return s.store.Delete(number)
 }
 
@@ -120,7 +141,8 @@ func main() {
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("database is unavailable: %v", err)
+		fmt.Printf("database is unavailable: %v\n", err)
+		return
 	}
 	store := NewParcelStore(db)
 	service := NewParcelService(store)
@@ -160,7 +182,7 @@ func main() {
 	err = service.Delete(p.Number)
 	if err != nil {
 		fmt.Printf("[ОЖИДАЕМАЯ ОШИБКА - попытка удалить отправленную посылку]: %v\n\n", err)
-		// удалила ruturn, чтобы предотвратить преждевременное завершение сценария.
+		// удалила return, чтобы предотвратить преждевременное завершение сценария.
 	}
 
 	// вывод посылок клиента
